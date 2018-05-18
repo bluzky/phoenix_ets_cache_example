@@ -21,7 +21,21 @@ defmodule PhoenixCache.Bucket do
   end
 
   def get(key) do
-    GenServer.call(__MODULE__, {:get, key})
+    rs = Ets.lookup(:simple_cache, key) |> List.first()
+
+    if rs == nil do
+      {:error, :not_found}
+    else
+      expired_at = elem(rs, 2)
+
+      cond do
+        NaiveDateTime.diff(NaiveDateTime.utc_now(), expired_at) > 0 ->
+          {:error, :expired}
+
+        true ->
+          {:ok, elem(rs, 1)}
+      end
+    end
   end
 
   def delete(key) do
@@ -33,26 +47,8 @@ defmodule PhoenixCache.Bucket do
 
   @impl true
   def init(state) do
-    Ets.new(:simple_cache, [:set, :protected, :named_table])
+    Ets.new(:simple_cache, [:set, :protected, :named_table, read_concurrency: true])
     {:ok, state}
-  end
-
-  def handle_call({:get, key}, _from, state) do
-    rs = Ets.lookup(:simple_cache, key) |> List.first()
-
-    if rs == nil do
-      {:reply, {:error, :not_found}, state}
-    else
-      expired_at = elem(rs, 2)
-
-      cond do
-        NaiveDateTime.diff(NaiveDateTime.utc_now(), expired_at) > 0 ->
-          {:reply, {:error, :expired}, state}
-
-        true ->
-          {:reply, {:ok, elem(rs, 1)}, state}
-      end
-    end
   end
 
   @doc """
